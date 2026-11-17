@@ -28,8 +28,9 @@ export const BOARDS: Board[] = [
   { id: 'hardcore_ironman', label: 'Hardcore Ironman', group: 'Ironman', where: `${MAIN} AND p.account_type = ${T.HARDCORE}` },
   { id: 'group_ironman', label: 'Group Ironman', group: 'Group Ironman', where: `${MAIN} AND p.account_type IN (${T.GROUP}, ${T.HARDCORE_GROUP}, ${T.UNRANKED_GROUP})` },
   { id: 'hardcore_group_ironman', label: 'Hardcore Group Ironman', group: 'Group Ironman', where: `${MAIN} AND p.account_type = ${T.HARDCORE_GROUP}` },
-  { id: 'hardcore_worlds', label: 'Hardcore Worlds', group: 'Game modes', where: "p.realm = 'STANDARD' AND p.game_mode = 'HARDCORE_MAIN'" },
-  { id: 'fresh_start', label: 'Fresh Start Worlds', group: 'Game modes', where: "p.game_mode = 'FRESH_START_WORLD'" },
+  // Separate game modes, so each is its own top-level tab rather than sharing a menu.
+  { id: 'hardcore_worlds', label: 'Hardcore Worlds', group: 'Hardcore Worlds', where: "p.realm = 'STANDARD' AND p.game_mode = 'HARDCORE_MAIN'" },
+  { id: 'fresh_start', label: 'Fresh Start Worlds', group: 'Fresh Start Worlds', where: "p.game_mode = 'FRESH_START_WORLD'" },
   { id: 'leagues', label: 'Leagues', group: 'Seasonal', where: "p.game_mode = 'SEASONAL'", seasonal: 'SEASONAL' },
   { id: 'deadman', label: 'Deadman', group: 'Seasonal', where: "p.game_mode = 'DEADMAN'", seasonal: 'DEADMAN' },
   // Account builds, like the official Skillers and 1 Defence boards.

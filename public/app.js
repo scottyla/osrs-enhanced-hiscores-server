@@ -180,8 +180,12 @@ function renderBoardbar(current, linkFor, only) {
     }
     const active = items.find((b) => b.id === current);
     const group = h('div', { class: 'nav-group' + (active ? ' current' : '') });
-    const button = h('button', { type: 'button', 'aria-haspopup': 'true',
-      onclick: () => group.classList.toggle('open') }, active ? active.label : g);
+    const button = h('button', { type: 'button', 'aria-haspopup': 'true', 'aria-expanded': 'false',
+      onclick: () => {
+        const opening = !group.classList.contains('open');
+        closeMenus();
+        if (opening) { group.classList.add('open'); button.setAttribute('aria-expanded', 'true'); }
+      } }, active ? active.label : g);
     group.append(button, h('div', { class: 'nav-menu', role: 'menu', 'aria-label': g },
       items.map((b) => h('a', { class: 'pill', role: 'menuitem', href: linkFor(b.id), 'aria-current': b.id === current ? 'page' : null }, b.label))));
     return group;
@@ -206,9 +210,16 @@ themeToggle.addEventListener('click', () => {
   applyTheme(next);
   localStorage.setItem('theme', next);
 });
+function closeMenus() {
+  document.querySelectorAll('.nav-group.open').forEach((g) => {
+    g.classList.remove('open');
+    g.querySelector('button')?.setAttribute('aria-expanded', 'false');
+  });
+}
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeMenus(); });
 // Close open game-mode menus when clicking elsewhere.
 document.addEventListener('click', (e) => {
-  document.querySelectorAll('.nav-group.open').forEach((g) => { if (!g.contains(e.target)) g.classList.remove('open'); });
+  if (!e.target.closest?.('.nav-group')) closeMenus();
 });
 
 // ---------- header search ----------
