@@ -30,13 +30,13 @@ railway domain osrsenhancedhiscores.com        # prints the DNS records to add
 
 `RAILWAY_RUN_UID=0` is needed because Railway mounts volumes as root and the image runs as the `node` user.
 
-### DNS (Porkbun)
+### DNS
 
-The domain's DNS is at Porkbun. Railway service domains are already created. The test URL is https://osrs-enhanced-hiscores-production.up.railway.app.
+Railway service domains are already created. The test URL is https://osrs-enhanced-hiscores-production.up.railway.app.
 
-In Porkbun → Domain Management → osrsenhancedhiscores.com → **DNS**:
+At the domain's DNS provider:
 
-1. Delete Porkbun's default parking records: the root `ALIAS`/`A` record pointing at `pixie.porkbun.com`, and the `*` CNAME.
+1. Delete any default parking records for the root and `*`.
 2. Add:
 
 | Type | Host | Answer |
@@ -68,7 +68,7 @@ Turn on scheduled backups for the volume in the Railway dashboard (service → V
 
 ## 2. Plugin checklist
 
-Already set: `DEFAULT_SERVER_URL` = `https://osrsenhancedhiscores.com`, `author=scottyla`, BSD-2 `LICENSE`, `icon.png` (48×48), `build=standard`, opt-in submission with the third-party IP warning, no reflection or extra dependencies.
+Already set: `DEFAULT_SERVER_URL` = `https://osrsenhancedhiscores.com`, `author=OSRS Enhanced Hiscores`, BSD-2 `LICENSE`, `icon.png` (48×48), `build=standard`, opt-in submission with the third-party IP warning, no reflection or extra dependencies.
 
 Before submitting:
 

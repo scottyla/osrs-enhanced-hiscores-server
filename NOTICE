@@ -1,0 +1,15 @@
+OSRS Enhanced Hiscores
+Copyright (c) 2026 OSRS Enhanced Hiscores contributors
+
+The source code in this repository is licensed under the BSD 2-Clause License (see LICENSE).
+
+Old School RuneScape and RuneScape are trademarks of Jagex Limited. All game content,
+including names, images and data from the game and the official hiscores, is
+© Jagex Limited. All rights reserved. This project is an unofficial fan project and is
+not affiliated with, endorsed by, or sponsored by Jagex Limited or RuneLite.
+
+Third-party material that is NOT covered by the BSD license:
+- public/icons/skills/*.png: skill icons from Old School RuneScape, © Jagex Limited.
+  All rights reserved. Included as distributed with the RuneLite client.
+- Item images on the website are loaded from static.runelite.net and are © Jagex Limited.
+- Official hiscores data shown on the website comes from Jagex Limited's hiscores.

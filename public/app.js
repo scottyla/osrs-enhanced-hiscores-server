@@ -937,7 +937,9 @@ function renderAbout() {
     h('h2', {}, 'Open source'),
     h('p', {}, 'Plugin: ', link(PLUGIN_REPO, PLUGIN_REPO.replace('https://', '')), h('br'),
       'Website and server: ', link(`${PLUGIN_REPO}-server`, `${PLUGIN_REPO.replace('https://', '')}-server`)),
-    h('p', { class: 'muted' }, 'Not affiliated with Jagex or RuneLite. Old School RuneScape is a trademark of Jagex Ltd. Skill and item icons are from the game, via RuneLite.')));
+    h('h2', {}, 'Legal'),
+    h('p', {}, 'Old School RuneScape and RuneScape are trademarks of Jagex Limited. All game content, including names, images and official hiscores data, is © Jagex Limited. All rights reserved.'),
+    h('p', {}, 'OSRS Enhanced Hiscores is an unofficial fan project. It is not affiliated with, endorsed by, or sponsored by Jagex Limited or RuneLite. Skill and item images are Jagex\'s, as distributed with RuneLite; the project\'s BSD license covers only its own source code.')));
 }
 
 // ---------- router ----------

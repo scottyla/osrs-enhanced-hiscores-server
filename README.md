@@ -82,3 +82,9 @@ All read endpoints accept `board` (default `normal`) and, for Leagues/Deadman, `
 - **Locked-out players.** If a player loses their token (for example, a new PC without RuneLite profile sync), clear it so their next submission claims the character again:
   `UPDATE players SET token_hash = NULL WHERE username_key = 'their name';`
 - **Schema changes.** `PRAGMA user_version` holds the schema version (currently 2). A v1 database from the first prototype is dropped and recreated on startup. From the first public release on, add real migrations in `src/db.ts` instead.
+
+## Legal
+
+Old School RuneScape and RuneScape are trademarks of Jagex Limited. Game content and images © Jagex Limited. All rights reserved. OSRS Enhanced Hiscores is an unofficial fan project, not affiliated with, endorsed by, or sponsored by Jagex or RuneLite.
+
+This project's own source code is BSD 2-Clause licensed (see `LICENSE`); that license does not cover Jagex's content. See `NOTICE`.
