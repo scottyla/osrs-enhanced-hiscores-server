@@ -398,7 +398,8 @@ async function renderHiscores(params) {
   const centre = h('section', { class: 'card' },
     h('div', { class: 'table-head' },
       h('h1', {}, `${boardLabel(board)} · ${categoryTitle(cat, params)}`),
-      h('span', { class: 'muted' }, `${num(summary.players)} players · ${gp(summary.lootValue)} tracked`)),
+      h('span', { class: 'muted', title: 'Ranks on this site are among players using the plugin. Player pages also show official ranks.' },
+        `${num(summary.players)} players with the plugin · ${gp(summary.lootValue)} tracked`)),
     h('div', { class: 'controls' }, metricToggle, seasonPicker),
     table, pager);
 
@@ -428,16 +429,31 @@ async function renderHiscores(params) {
 
 // ---------- player page ----------
 
+/** Official Jagex hiscores via our server (cached there). Null if the player isn't on that official table. */
+async function fetchOfficial(name, board) {
+  try {
+    const o = await api(`/api/official/${encodeURIComponent(name)}`, { board });
+    return o?.found ? o : { found: false };
+  } catch {
+    return { unavailable: true };
+  }
+}
+
 async function renderPlayer(username, params) {
   const data = await api(`/api/players/${encodeURIComponent(username)}`, { board: params.get('board'), season: params.get('season') });
+  const official = await fetchOfficial(data?.profile.username ?? username, data?.board ?? params.get('board') ?? 'normal');
   if (!data) {
-    renderBoardbar(params.get('board') ?? 'normal', (id) => href('/', { board: id }));
+    if (official.found) return renderOfficialOnly(official, params.get('board') ?? 'normal');
+    renderBoardbar(params.get('board') ?? 'normal', (id) => playerHref(username, id));
     app.replaceChildren(h('div', { class: 'card' },
       h('h1', {}, username),
-      h('p', { class: 'muted' }, 'This player isn\'t on the hiscores. They need the OSRS Enhanced Hiscores RuneLite plugin with "Submit data" turned on.')));
+      h('p', { class: 'muted' }, official.unavailable
+        ? 'This player hasn\'t linked the plugin, and the official hiscores can\'t be reached right now. Try again shortly.'
+        : `No player called "${username}" is on the official ${boardLabel(params.get('board') ?? 'normal')} hiscores, and they haven't linked the plugin.`)));
     return;
   }
   const { profile: p, ranks, board, season } = data;
+  const officialRank = new Map((official.skills ?? []).map((s) => [s.skill, s.rank]));
   const q = { board, season };
   document.title = `${p.username} · OSRS Enhanced Hiscores`;
   renderBoardbar(board, (id) => href('/', { board: id }));
@@ -457,13 +473,19 @@ async function renderPlayer(username, params) {
   const skillsCard = h('section', { class: 'card' },
     h('h2', {}, 'Skills'),
     h('table', {},
-      h('thead', {}, h('tr', {}, h('th', {}, 'Skill'), h('th', { class: 'num' }, 'Rank'), h('th', { class: 'num' }, 'Level'), h('th', { class: 'num' }, 'XP'))),
+      h('thead', {}, h('tr', {}, h('th', {}, 'Skill'),
+        h('th', { class: 'num', title: 'Rank on the official Jagex hiscores' }, 'Official rank'),
+        h('th', { class: 'num', title: 'Rank among players using the plugin' }, 'Plugin rank'),
+        h('th', { class: 'num' }, 'Level'), h('th', { class: 'num' }, 'XP'))),
       h('tbody', {},
-        h('tr', {}, h('td', {}, skillIcon('overall'), h('a', { href: catHref('overall') }, h('strong', {}, 'Overall'))), rankCell(ranks.overall.rank),
+        h('tr', {}, h('td', {}, skillIcon('overall'), h('a', { href: catHref('overall') }, h('strong', {}, 'Overall'))),
+          rankCell(officialRank.get('OVERALL')), rankCell(ranks.overall.rank),
           h('td', { class: 'num' }, num(ranks.overall.level)), h('td', { class: 'num' }, num(ranks.overall.xp))),
         ranks.skills.map((s) => h('tr', {},
-          h('td', {}, skillIcon(s.skill), h('a', { href: catHref(`skill:${s.skill}`) }, skillName(s.skill))), rankCell(s.rank),
-          h('td', { class: 'num' }, num(s.level)), h('td', { class: 'num' }, num(s.xp)))))));
+          h('td', {}, skillIcon(s.skill), h('a', { href: catHref(`skill:${s.skill}`) }, skillName(s.skill))),
+          rankCell(officialRank.get(s.skill)), rankCell(s.rank),
+          h('td', { class: 'num' }, num(s.level)), h('td', { class: 'num' }, num(s.xp)))))),
+    official.unavailable ? h('p', { class: 'muted', style: { fontSize: '0.82rem' } }, 'Official ranks are unavailable right now.') : null);
 
   const statsCard = h('section', { class: 'card' },
     h('h2', {}, 'Loot & account'),
@@ -479,11 +501,12 @@ async function renderPlayer(username, params) {
   const clog = p.collectionLog;
   app.replaceChildren(
     h('div', { class: 'player-header' }, h('h1', {}, p.username), accountBadges(p.accountType, p.gameMode),
-      h('span', { class: 'muted' }, `Updated ${timeAgo(p.lastUpdated)}`),
+      linkBadge(true),
+      h('span', { class: 'muted' }, `Synced ${timeAgo(p.lastUpdated)}`),
       h('a', { class: 'pill', href: href('/compare', { a: p.username, board, season }), style: { marginLeft: 'auto' } }, 'Compare…')),
     p.boards.length > 1 ? h('div', { class: 'board-pills', role: 'group', 'aria-label': 'Ranks on board' },
       h('span', { class: 'muted' }, 'Ranks on:'),
-      p.boards.map((id) => h('a', { class: 'pill', href: playerHref(p.username, id, season), 'aria-pressed': String(id === board) }, boardLabel(id)))) : null,
+      p.boards.map((id) => h('a', { class: 'pill', href: playerHref(p.username, id, season), 'aria-pressed': String(id === board) }, boardLabel(id)))) : '',
     h('div', { class: 'tiles' },
       tile('Total level', num(p.totalLevel), p.combatLevel ? `Combat ${p.combatLevel}` : null),
       tile('Total XP', compact(p.totalXp ?? 0)),
@@ -497,11 +520,69 @@ async function renderPlayer(username, params) {
       tile('Achievement diaries', p.diariesCompleted != null ? `${num(p.diariesCompleted)} / 48` : '–'),
       tile('Slayer', p.slayer ? `${num(p.slayer.points)} pts` : '–', p.slayer ? `Streak ${num(p.slayer.streak)}` : null)),
     h('div', { class: 'grid-2' }, skillsCard, h('div', { class: 'stack' }, statsCard, clogCategories(clog))),
+    officialActivitiesCard(official),
     lootSection(p.username, q, ranks.sources),
     h('div', { class: 'grid-2' }, killCountsCard(killCounts ?? [], q), diariesCard(p.diaries)),
     progressCard(progress, q),
     questsCard(quests ?? [], q),
     h('div', { class: 'grid-2' }, dropsFeed(drops ?? []), clogItemsCard(clogItems ?? [])));
+}
+
+function linkBadge(linked) {
+  return linked
+    ? h('span', { class: 'badge linked', title: 'This player uses the OSRS Enhanced Hiscores RuneLite plugin' }, '✔ Plugin linked')
+    : h('span', { class: 'badge unlinked', title: 'Showing official hiscores only' }, 'Not linked');
+}
+
+/** Official boss/activity scores and ranks (Jagex), with a link to the official page. */
+function officialActivitiesCard(official) {
+  const card = h('section', { class: 'card' }, h('h2', {}, 'Official hiscores: bosses & activities'));
+  if (official.unavailable) {
+    card.append(h('p', { class: 'empty' }, 'The official hiscores can\'t be reached right now.'));
+    return card;
+  }
+  if (!official.found) {
+    card.append(h('p', { class: 'empty' }, 'Not on this official hiscores table.'));
+    return card;
+  }
+  const acts = official.activities ?? [];
+  card.append(
+    acts.length === 0 ? h('p', { class: 'empty' }, 'No ranked bosses or activities.') : h('div', { class: 'scroll' }, h('table', {},
+      h('thead', {}, h('tr', {}, h('th', {}, 'Boss / activity'), h('th', { class: 'num' }, 'Official rank'), h('th', { class: 'num' }, 'Score'))),
+      h('tbody', {}, acts.map((a) => h('tr', {}, h('td', {}, a.name), h('td', { class: 'num' }, num(a.rank)), h('td', { class: 'num' }, num(a.score))))))),
+    h('p', { class: 'muted', style: { fontSize: '0.82rem' } },
+      h('a', { href: official.url, rel: 'noopener', target: '_blank' }, 'View on the official hiscores ↗'),
+      ` · from Jagex, checked ${timeAgo(official.fetchedAt)}. The official hiscores update when you log out.`));
+  return card;
+}
+
+/** A player who hasn't linked the plugin: official hiscores only. */
+function renderOfficialOnly(official, board) {
+  const name = official.name;
+  document.title = `${name} · OSRS Enhanced Hiscores`;
+  renderBoardbar(board, (id) => playerHref(name, id));
+  const skills = official.skills ?? [];
+  const overall = skills.find((s) => s.skill === 'OVERALL');
+  const act = (n) => (official.activities ?? []).find((a) => a.name === n);
+  app.replaceChildren(
+    h('div', { class: 'player-header' }, h('h1', {}, name), linkBadge(false),
+      h('span', { class: 'muted' }, `Official ${boardLabel(board)} hiscores`)),
+    h('section', { class: 'card' },
+      h('p', { style: { margin: 0 } }, h('strong', {}, `${name} hasn't linked the OSRS Enhanced Hiscores plugin`),
+        ', so this page shows their official hiscores only. With the plugin it would also show loot, quest times, achievement diaries, combat achievements, the collection log, kill counts, XP gains and more. ',
+        h('a', { href: '#/about' }, 'How to link it'))),
+    h('div', { class: 'tiles' },
+      tile('Total level', num(overall?.level), overall?.rank ? `Official rank ${num(overall.rank)}` : null),
+      tile('Total XP', compact(overall?.xp ?? 0)),
+      tile('Collections logged', num(act('Collections Logged')?.score), act('Collections Logged')?.rank ? `Rank ${num(act('Collections Logged').rank)}` : null),
+      tile('Clue scrolls', num(act('Clue Scrolls (all)')?.score), act('Clue Scrolls (all)')?.rank ? `Rank ${num(act('Clue Scrolls (all)').rank)}` : null)),
+    h('div', { class: 'grid-2' },
+      h('section', { class: 'card' }, h('h2', {}, 'Skills (official)'), h('table', {},
+        h('thead', {}, h('tr', {}, h('th', {}, 'Skill'), h('th', { class: 'num' }, 'Official rank'), h('th', { class: 'num' }, 'Level'), h('th', { class: 'num' }, 'XP'))),
+        h('tbody', {}, skills.map((s) => h('tr', {},
+          h('td', {}, skillIcon(s.skill), s.skill === 'OVERALL' ? h('strong', {}, 'Overall') : skillName(s.skill)),
+          h('td', { class: 'num' }, num(s.rank)), h('td', { class: 'num' }, num(s.level)), h('td', { class: 'num' }, num(s.xp))))))),
+      officialActivitiesCard(official)));
 }
 
 function killCountsCard(kcs, q) {

@@ -6,7 +6,8 @@ import type { DB } from './db.ts';
 import { BOARD_IDS, SKILLS, STAT_CATEGORIES, type StatCategory } from './boards.ts';
 import { createIngest, IngestError } from './ingest.ts';
 import { createQueries, QueryError, type Category, type Period } from './queries.ts';
-import { submissionSchema, type Submission } from './validate.ts';
+import { submissionSchema, USERNAME_PATTERN, type Submission } from './validate.ts';
+import { createOfficial, OfficialUnavailable } from './official.ts';
 
 export interface AppOptions {
   db: DB;
@@ -15,6 +16,8 @@ export interface AppOptions {
   trustProxy?: boolean;
   /** Plugin submissions allowed per IP per minute. */
   submitRateLimit?: number;
+  /** Official hiscores client; injectable for tests. */
+  official?: ReturnType<typeof createOfficial>;
 }
 
 const CSP = [
@@ -58,7 +61,7 @@ function parseCategory(q: CategoryQs): Category {
   return { kind: 'stat', stat: q.category as StatCategory };
 }
 
-export async function buildApp({ db, logger = true, trustProxy = false, submitRateLimit = 30 }: AppOptions): Promise<FastifyInstance> {
+export async function buildApp({ db, logger = true, trustProxy = false, submitRateLimit = 30, official = createOfficial() }: AppOptions): Promise<FastifyInstance> {
   const app = Fastify({
     // Log requests without client IPs: the About page promises IPs aren't kept.
     logger: logger ? { serializers: { req: (req) => ({ method: req.method, url: req.url }) } } : false,
@@ -84,6 +87,7 @@ export async function buildApp({ db, logger = true, trustProxy = false, submitRa
     if (err instanceof QueryError || err instanceof IngestError) {
       return reply.code(err.statusCode).send({ error: err.message });
     }
+    if (err instanceof OfficialUnavailable) return reply.code(503).send({ error: err.message });
     if (err.validation) return reply.code(400).send({ error: err.message });
     if ((err.statusCode ?? 500) < 500) return reply.code(err.statusCode!).send({ error: err.message });
     app.log.error(err);
@@ -162,6 +166,15 @@ export async function buildApp({ db, logger = true, trustProxy = false, submitRa
 
   app.get<{ Querystring: BoardQs }>('/api/killcounts', { schema: { querystring: boardQuery } },
     async (req) => q.killCountNames(req.query.board, req.query.season));
+
+  // Official Jagex hiscores for any player, linked to the plugin or not. Cached for 10 minutes.
+  app.get<{ Params: { username: string }; Querystring: BoardQs }>('/api/official/:username', {
+    schema: {
+      params: { type: 'object', required: ['username'], properties: { username: { type: 'string', pattern: USERNAME_PATTERN } } },
+      querystring: boardQuery,
+    },
+    config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+  }, async (req) => official.get(req.params.username, req.query.board));
 
   app.get<{ Querystring: BoardQs }>('/api/quests', { schema: { querystring: boardQuery } },
     async (req) => q.timedQuests(req.query.board, req.query.season));

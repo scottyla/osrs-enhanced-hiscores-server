@@ -8,6 +8,9 @@ export interface ItemInfo {
   haPrice: number;
 }
 
+/** OSRS display names: 1-12 letters, digits, spaces, hyphens, underscores (and nbsp, as the client reports it). */
+export const USERNAME_PATTERN = '^[A-Za-z0-9 _\\-\\u00a0]{1,12}$';
+
 export const GAME_MODES = ['NORMAL', 'HARDCORE_MAIN', 'FRESH_START_WORLD', 'SEASONAL', 'DEADMAN'] as const;
 
 export interface Stats {
@@ -102,7 +105,7 @@ export const submissionSchema = {
   properties: {
     accountHash: { type: 'string', pattern: '^-?[0-9]{1,20}$' },
     // OSRS names are 1-12 chars of letters, digits, spaces, hyphens and underscores.
-    username: { type: 'string', pattern: '^[A-Za-z0-9 _\\-\\u00a0]{1,12}$' },
+    username: { type: 'string', pattern: USERNAME_PATTERN },
     accountType: int(10),
     profileType: { type: 'string', pattern: '^[A-Z0-9_]{1,40}$' },
     gameMode: { type: 'string', enum: GAME_MODES },

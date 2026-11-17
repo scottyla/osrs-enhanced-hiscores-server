@@ -147,6 +147,8 @@ export function createQueries(db: DB) {
 
   function profile(p: PlayerRow, boards: string[]) {
     return {
+      /** Always true here: everyone in our database has submitted data with the plugin. */
+      pluginLinked: true,
       username: p.username,
       accountType: p.account_type,
       gameMode: p.game_mode,

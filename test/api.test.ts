@@ -375,3 +375,45 @@ test('xp gains use the first snapshot of the period, and level-ups are recorded'
   assert.equal((await get('/api/hiscores?category=gains&skill=NOPE')).status, 400);
   await app.close();
 });
+
+test('official hiscores: found, not found, cached, and outages', async () => {
+  const { createOfficial } = await import('../src/official.ts');
+  const calls: string[] = [];
+  let down = false;
+  const fakeFetch = (async (url: string) => {
+    calls.push(url);
+    if (down) throw new Error('network down');
+    if (url.includes('player=Nobody')) return new Response('', { status: 404 });
+    return new Response(JSON.stringify({
+      name: 'Zezima',
+      skills: [{ id: 0, name: 'Overall', rank: 1234, level: 2277, xp: 4_600_000_000 }, { id: 1, name: 'Attack', rank: -1, level: 1, xp: -1 }],
+      activities: [{ id: 1, name: 'Zulrah', rank: 99, score: 500 }, { id: 2, name: 'Vorkath', rank: -1, score: -1 }, { id: 3, name: 'Grid Points', rank: -1, score: 0 }],
+    }), { status: 200 });
+  }) as typeof fetch;
+  const app = await buildApp({ db: openDatabase(':memory:'), logger: false, official: createOfficial({ fetchImpl: fakeFetch }) });
+
+  const found = (await app.inject('/api/official/Zezima?board=hardcore_worlds')).json();
+  assert.equal(found.found, true);
+  assert.equal(found.endpoint, 'hiscore_oldschool_hardcore_mains');
+  assert.deepEqual(found.skills[0], { skill: 'OVERALL', rank: 1234, level: 2277, xp: 4_600_000_000 });
+  assert.deepEqual(found.skills[1], { skill: 'ATTACK', rank: null, level: 1, xp: 0 });
+  assert.deepEqual(found.activities, [{ name: 'Zulrah', rank: 99, score: 500 }], 'unranked activities are dropped');
+  assert.match(found.url, /hiscorepersonal\?user1=Zezima/);
+
+  await app.inject('/api/official/zezima?board=hardcore_worlds');
+  assert.equal(calls.length, 1, 'second view is served from the cache');
+
+  assert.equal((await app.inject('/api/official/Nobody')).json().found, false);
+
+  down = true;
+  assert.equal((await app.inject('/api/official/Someone')).statusCode, 503);
+  assert.equal((await app.inject('/api/official/bad%60name')).statusCode, 400);
+  await app.close();
+});
+
+test('profiles say the plugin is linked', async () => {
+  const { app, submit, get } = await setup();
+  await submit(submission({ username: 'Linked' }));
+  assert.equal((await get('/api/players/Linked')).body.profile.pluginLinked, true);
+  await app.close();
+});
