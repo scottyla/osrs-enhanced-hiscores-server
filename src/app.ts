@@ -70,7 +70,11 @@ export async function buildApp({ db, logger = true, trustProxy = false, submitRa
 
   await app.register(rateLimit, { global: true, max: 300, timeWindow: '1 minute' });
 
-  app.addHook('onSend', async (_req, reply) => {
+  app.addHook('onSend', async (req, reply) => {
+    // Leaderboards and player pages can be up to 30 s old; lets browsers/proxies absorb bursts of traffic.
+    if (req.method === 'GET' && req.url.startsWith('/api/') && req.url !== '/api/health' && reply.statusCode === 200) {
+      reply.header('Cache-Control', 'public, max-age=30');
+    }
     reply.header('X-Content-Type-Options', 'nosniff');
     reply.header('Referrer-Policy', 'no-referrer');
     reply.header('Content-Security-Policy', CSP);

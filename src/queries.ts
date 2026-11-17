@@ -1,3 +1,4 @@
+import type Database from 'better-sqlite3';
 import { usernameKey, type DB } from './db.ts';
 import { BOARDS, boardById, SKILLS, STAT_CATEGORIES, type Board, type StatCategory } from './boards.ts';
 
@@ -71,7 +72,32 @@ interface PlayerRow {
 
 const escapeLike = (s: string) => s.replace(/[\\%_]/g, (c) => '\\' + c);
 
+/** Statement cache: queries are built per board, so prepare each distinct SQL string once. */
+function statementCache(db: DB) {
+  const cache = new Map<string, Database.Statement<unknown[]>>();
+  return (sql: string) => {
+    let st = cache.get(sql);
+    if (!st) cache.set(sql, (st = db.prepare<unknown[]>(sql)));
+    return st;
+  };
+}
+
+/** Tiny TTL cache for the sidebar lists and board summaries, which aggregate the whole board. */
+function ttlCache(ms: number) {
+  const store = new Map<string, { at: number; value: unknown }>();
+  return <T>(key: string, compute: () => T): T => {
+    const hit = store.get(key);
+    const now = Date.now();
+    if (hit && now - hit.at < ms) return hit.value as T;
+    const value = compute();
+    store.set(key, { at: now, value });
+    return value;
+  };
+}
+
 export function createQueries(db: DB) {
+  const prep = statementCache(db);
+  const cached = ttlCache(60_000);
   /** A board plus the season it's showing, as a SQL fragment over `players p`. */
   interface Scope { board: Board; season: string | null; where: string; params: string[] }
 
@@ -149,41 +175,42 @@ export function createQueries(db: DB) {
     };
   }
 
-  /** Ranks for every category, within one board. Uses window functions so each kind is one query. */
+  /**
+   * Ranks for every category, within one board. Each rank is 1 + the number of board members strictly
+   * ahead, counted through an index on the score, so the cost depends on how many players are ahead
+   * rather than sorting the whole board.
+   */
   function ranks(p: PlayerRow, s: Scope) {
-    const overall = p.total_level == null ? null : (db.prepare(
-      `SELECT COUNT(*) + 1 AS rank FROM players p WHERE ${s.where} AND p.total_level IS NOT NULL
-         AND (p.total_level > ? OR (p.total_level = ? AND p.total_xp > ?))`,
-    ).get(...s.params, p.total_level, p.total_level, p.total_xp) as { rank: number }).rank;
+    const count = (sql: string, ...args: unknown[]) => (prep(sql).get(...args) as { n: number }).n + 1;
 
-    const skillRows = db.prepare(
-      `SELECT skill, level, xp, rnk FROM (
-         SELECT ps.player_id, ps.skill, ps.level, ps.xp, RANK() OVER (PARTITION BY ps.skill ORDER BY ps.xp DESC) AS rnk
-         FROM player_skills ps JOIN players p ON p.id = ps.player_id WHERE ${s.where}
-       ) WHERE player_id = ?`,
-    ).all(...s.params, p.id) as { skill: string; level: number; xp: number; rnk: number }[];
-    const bySkill = new Map(skillRows.map((r) => [r.skill, r]));
+    const overall = p.total_level == null ? null : count(
+      `SELECT COUNT(*) AS n FROM players p WHERE p.total_level IS NOT NULL
+         AND (p.total_level > ? OR (p.total_level = ? AND p.total_xp > ?)) AND ${s.where}`,
+      p.total_level, p.total_level, p.total_xp, ...s.params);
+
+    const mySkills = prep('SELECT skill, level, xp FROM player_skills WHERE player_id = ?')
+      .all(p.id) as { skill: string; level: number; xp: number }[];
+    const skillRankSql = `SELECT COUNT(*) AS n FROM player_skills ps JOIN players p ON p.id = ps.player_id
+       WHERE ps.skill = ? AND ps.xp > ? AND ${s.where}`;
+    const bySkill = new Map(mySkills.map((r) => [r.skill, { ...r, rnk: count(skillRankSql, r.skill, r.xp, ...s.params) }]));
 
     const stats = Object.entries(STAT_CATEGORIES).map(([key, { column, label }]) => {
       const score = (p as unknown as Record<string, number | null>)[column];
-      const rank = score == null || score <= 0 ? null : (db.prepare(
-        `SELECT COUNT(*) + 1 AS rank FROM players p WHERE ${s.where} AND p.${column} > ?`,
-      ).get(...s.params, score) as { rank: number }).rank;
+      const rank = score == null || score <= 0 ? null
+        : count(`SELECT COUNT(*) AS n FROM players p WHERE p.${column} > ? AND ${s.where}`, score, ...s.params);
       return { key, label, score, rank };
     });
 
-    const sources = db.prepare(
-      `SELECT type, name, kills, value, first_at, last_at, kill_rank, value_rank FROM (
-         SELECT s.player_id, s.type, s.name, s.kills, s.value, s.first_at, s.last_at,
-           RANK() OVER (PARTITION BY s.type, s.name ORDER BY s.kills DESC) AS kill_rank,
-           RANK() OVER (PARTITION BY s.type, s.name ORDER BY s.value DESC) AS value_rank
-         FROM loot_sources s JOIN players p ON p.id = s.player_id
-         WHERE ${s.where} AND (s.type, s.name) IN (SELECT type, name FROM loot_sources WHERE player_id = ?)
-       ) WHERE player_id = ? ORDER BY value DESC, kills DESC`,
-    ).all(...s.params, p.id, p.id) as {
-      type: string; name: string; kills: number; value: number; first_at: number | null; last_at: number | null;
-      kill_rank: number; value_rank: number;
-    }[];
+    const mine = prep(
+      `SELECT type, name, kills, value, first_at, last_at FROM loot_sources WHERE player_id = ? ORDER BY value DESC, kills DESC`,
+    ).all(p.id) as { type: string; name: string; kills: number; value: number; first_at: number | null; last_at: number | null }[];
+    const sourceRankSql = (col: 'kills' | 'value') => `SELECT COUNT(*) AS n FROM loot_sources s JOIN players p ON p.id = s.player_id
+       WHERE s.type = ? AND s.name = ? AND s.${col} > ? AND ${s.where}`;
+    const sources = mine.map((r) => ({
+      ...r,
+      kill_rank: count(sourceRankSql('kills'), r.type, r.name, r.kills, ...s.params),
+      value_rank: count(sourceRankSql('value'), r.type, r.name, r.value, ...s.params),
+    }));
 
     return {
       overall: { rank: overall, level: p.total_level, xp: p.total_xp },
@@ -274,15 +301,16 @@ export function createQueries(db: DB) {
     /** Official kill counts and PBs for a player, with ranks on the board. */
     killCounts(username: string, boardId: string, season?: string) {
       const { p, s } = resolvePlayer(username, boardId, season);
-      return db.prepare(
-        `SELECT name, kc, pb_seconds AS pb, kc_rank AS kcRank, pb_rank AS pbRank FROM (
-           SELECT k.player_id, k.name, k.kc, k.pb_seconds,
-             CASE WHEN k.kc IS NULL THEN NULL ELSE RANK() OVER (PARTITION BY k.name ORDER BY k.kc DESC NULLS LAST) END AS kc_rank,
-             CASE WHEN k.pb_seconds IS NULL THEN NULL ELSE RANK() OVER (PARTITION BY k.name ORDER BY k.pb_seconds ASC NULLS LAST) END AS pb_rank
-           FROM player_killcounts k JOIN players p ON p.id = k.player_id
-           WHERE ${s.where} AND k.name IN (SELECT name FROM player_killcounts WHERE player_id = ?)
-         ) WHERE player_id = ? ORDER BY name`,
-      ).all(...s.params, p.id, p.id) as { name: string; kc: number | null; pb: number | null; kcRank: number | null; pbRank: number | null }[];
+      const mine = prep('SELECT name, kc, pb_seconds AS pb FROM player_killcounts WHERE player_id = ? ORDER BY name')
+        .all(p.id) as { name: string; kc: number | null; pb: number | null }[];
+      const rank = (sql: string, ...args: unknown[]) => (prep(sql).get(...args) as { n: number }).n + 1;
+      return mine.map((k) => ({
+        ...k,
+        kcRank: k.kc == null ? null : rank(`SELECT COUNT(*) AS n FROM player_killcounts k JOIN players p ON p.id = k.player_id
+          WHERE k.name = ? AND k.kc > ? AND ${s.where}`, k.name, k.kc, ...s.params),
+        pbRank: k.pb == null ? null : rank(`SELECT COUNT(*) AS n FROM player_killcounts k JOIN players p ON p.id = k.player_id
+          WHERE k.name = ? AND k.pb_seconds IS NOT NULL AND k.pb_seconds < ? AND ${s.where}`, k.name, k.pb, ...s.params),
+      }));
     },
 
     /** XP gains (day/week/month), daily total XP history and level-ups. */
@@ -314,21 +342,21 @@ export function createQueries(db: DB) {
     /** Kill count names (bosses, activities, clues) with players on this board. */
     killCountNames(boardId: string, season?: string) {
       const s = scope(boardId, season);
-      return db.prepare(
+      return cached(`kc|${s.board.id}|${s.season}`, () => prep(
         `SELECT k.name, COUNT(*) AS players FROM player_killcounts k JOIN players p ON p.id = k.player_id
          WHERE ${s.where} AND (k.kc > 0 OR k.pb_seconds IS NOT NULL) GROUP BY k.name ORDER BY k.name`,
-      ).all(...s.params) as { name: string; players: number }[];
+      ).all(...s.params) as { name: string; players: number }[]);
     },
 
     /** Quests with at least one timed completion on this board, for the quest speed leaderboards. */
     timedQuests(boardId: string, season?: string) {
       const s = scope(boardId, season);
-      return db.prepare(
+      return cached(`quests|${s.board.id}|${s.season}`, () => prep(
         `SELECT q.quest_id AS id, MAX(q.name) AS name, COUNT(*) AS players FROM player_quests q
          JOIN players p ON p.id = q.player_id
          WHERE ${s.where} AND q.state = 'FINISHED' AND q.played_ms IS NOT NULL
          GROUP BY q.quest_id ORDER BY name COLLATE NOCASE`,
-      ).all(...s.params) as { id: number; name: string; players: number }[];
+      ).all(...s.params) as { id: number; name: string; players: number }[]);
     },
 
     collectionLog(username: string, boardId: string, season?: string) {
@@ -434,18 +462,18 @@ export function createQueries(db: DB) {
     /** Bosses and activities that have at least one player on this board. */
     sources(boardId: string, season?: string) {
       const s = scope(boardId, season);
-      return db.prepare(
+      return cached(`sources|${s.board.id}|${s.season}`, () => prep(
         `SELECT s.type, s.name, COUNT(*) AS players FROM loot_sources s JOIN players p ON p.id = s.player_id
          WHERE ${s.where} AND s.kills > 0 GROUP BY s.type, s.name ORDER BY s.name COLLATE NOCASE LIMIT 1000`,
-      ).all(...s.params) as { type: string; name: string; players: number }[];
+      ).all(...s.params) as { type: string; name: string; players: number }[]);
     },
 
     summary(boardId: string, season?: string) {
       const s = scope(boardId, season);
-      const r = db.prepare(
+      const r = cached(`summary|${s.board.id}|${s.season}`, () => prep(
         `SELECT COUNT(*) AS players, COALESCE(SUM(p.loot_value), 0) AS lootValue, COALESCE(SUM(p.total_kills), 0) AS kills
          FROM players p WHERE ${s.where}`,
-      ).get(...s.params) as { players: number; lootValue: number; kills: number };
+      ).get(...s.params) as { players: number; lootValue: number; kills: number });
       return { board: s.board.id, season: s.season, ...r };
     },
   };

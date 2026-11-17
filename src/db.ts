@@ -165,13 +165,20 @@ const POST_MIGRATION = `
 CREATE INDEX IF NOT EXISTS players_quests ON players(quests_completed DESC);
 CREATE INDEX IF NOT EXISTS players_ca ON players(ca_points DESC);
 CREATE INDEX IF NOT EXISTS players_diaries ON players(diaries_completed DESC);
+CREATE INDEX IF NOT EXISTS loot_sources_value ON loot_sources(type, name, value DESC);
 `;
 
 export function openDatabase(path: string): DB {
   const db = new Database(path);
   db.pragma('journal_mode = WAL');
+  // WAL + NORMAL: commits don't fsync; a power cut can lose the last moments, never corrupt the file.
+  // The plugin re-sends snapshots, so that's an acceptable trade for ~10x faster writes.
+  db.pragma('synchronous = NORMAL');
   db.pragma('foreign_keys = ON');
   db.pragma('busy_timeout = 5000');
+  db.pragma('temp_store = MEMORY');
+  db.pragma('cache_size = -65536');       // 64 MB page cache
+  db.pragma('mmap_size = 268435456');     // 256 MB memory-mapped reads
 
   let version = db.pragma('user_version', { simple: true }) as number;
   const hasTables = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'players'").get();
