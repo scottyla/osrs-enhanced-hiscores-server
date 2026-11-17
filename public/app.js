@@ -60,6 +60,10 @@ const hours = (minutes) => (minutes == null ? '–' : num(Math.floor(minutes / 6
 const titleCase = (s) => s.charAt(0) + s.slice(1).toLowerCase();
 const skillName = (s) => titleCase(s);
 const skillIcon = (s) => h('img', { class: 'skill-icon', src: `/icons/skills/${s.toLowerCase()}.png`, alt: '', width: 16, height: 16 });
+/** Game-mode icon for a board (the in-game account type badges). Decorative: the label next to it carries the meaning. */
+const modeIcon = (boardId) => h('img', { class: 'mode-icon', src: `/icons/modes/${boardId}.png`, alt: '', width: 18, height: 18 });
+const ACCOUNT_TYPE_BOARD = ['', 'ironman', 'ultimate', 'hardcore_ironman', 'group_ironman', 'hardcore_group_ironman', 'group_ironman'];
+const GAME_MODE_BOARD = { HARDCORE_MAIN: 'hardcore_worlds', FRESH_START_WORLD: 'fresh_start', SEASONAL: 'leagues', DEADMAN: 'deadman' };
 
 /** 5_400_000 -> "1h 30m"; days for long spans. */
 function duration(ms) {
@@ -129,8 +133,8 @@ const boardLabel = (id) => boards.find((b) => b.id === id)?.label ?? id;
 
 function accountBadges(accountType, gameMode) {
   return [
-    accountType ? h('span', { class: 'badge' }, ACCOUNT_TYPES[accountType] ?? 'Ironman') : null,
-    GAME_MODES[gameMode] ? h('span', { class: 'badge' }, GAME_MODES[gameMode]) : null,
+    accountType ? h('span', { class: 'badge' }, modeIcon(ACCOUNT_TYPE_BOARD[accountType] || 'ironman'), ACCOUNT_TYPES[accountType] ?? 'Ironman') : null,
+    GAME_MODES[gameMode] ? h('span', { class: 'badge' }, modeIcon(GAME_MODE_BOARD[gameMode]), GAME_MODES[gameMode]) : null,
   ];
 }
 
@@ -176,7 +180,7 @@ function renderBoardbar(current, linkFor, only) {
     const items = visible.filter((b) => b.group === g);
     if (items.length === 1) {
       const b = items[0];
-      return h('a', { class: 'pill', href: linkFor(b.id), 'aria-current': b.id === current ? 'page' : null }, b.label);
+      return h('a', { class: 'pill', href: linkFor(b.id), 'aria-current': b.id === current ? 'page' : null }, modeIcon(b.id), b.label);
     }
     const active = items.find((b) => b.id === current);
     const group = h('div', { class: 'nav-group' + (active ? ' current' : '') });
@@ -185,9 +189,9 @@ function renderBoardbar(current, linkFor, only) {
         const opening = !group.classList.contains('open');
         closeMenus();
         if (opening) { group.classList.add('open'); button.setAttribute('aria-expanded', 'true'); }
-      } }, active ? active.label : g);
+      } }, modeIcon((active ?? items[0]).id), active ? active.label : g);
     group.append(button, h('div', { class: 'nav-menu', role: 'menu', 'aria-label': g },
-      items.map((b) => h('a', { class: 'pill', role: 'menuitem', href: linkFor(b.id), 'aria-current': b.id === current ? 'page' : null }, b.label))));
+      items.map((b) => h('a', { class: 'pill', role: 'menuitem', href: linkFor(b.id), 'aria-current': b.id === current ? 'page' : null }, modeIcon(b.id), b.label))));
     return group;
   }));
   boardbar.replaceChildren(nav, select);
@@ -408,7 +412,7 @@ async function renderHiscores(params) {
 
   const centre = h('section', { class: 'card' },
     h('div', { class: 'table-head' },
-      h('h1', {}, `${boardLabel(board)} · ${categoryTitle(cat, params)}`),
+      h('h1', { class: 'with-icon' }, modeIcon(board), `${boardLabel(board)} · ${categoryTitle(cat, params)}`),
       h('span', { class: 'muted', title: 'Ranks on this site are among players using the plugin. Player pages also show official ranks.' },
         `${num(summary.players)} players with the plugin · ${gp(summary.lootValue)} tracked`)),
     h('div', { class: 'controls' }, metricToggle, seasonPicker),
@@ -517,7 +521,7 @@ async function renderPlayer(username, params) {
       h('a', { class: 'pill', href: href('/compare', { a: p.username, board, season }), style: { marginLeft: 'auto' } }, 'Compare…')),
     p.boards.length > 1 ? h('div', { class: 'board-pills', role: 'group', 'aria-label': 'Ranks on board' },
       h('span', { class: 'muted' }, 'Ranks on:'),
-      p.boards.map((id) => h('a', { class: 'pill', href: playerHref(p.username, id, season), 'aria-pressed': String(id === board) }, boardLabel(id)))) : '',
+      p.boards.map((id) => h('a', { class: 'pill', href: playerHref(p.username, id, season), 'aria-pressed': String(id === board) }, modeIcon(id), boardLabel(id)))) : '',
     h('div', { class: 'tiles' },
       tile('Total level', num(p.totalLevel), p.combatLevel ? `Combat ${p.combatLevel}` : null),
       tile('Total XP', compact(p.totalXp ?? 0)),

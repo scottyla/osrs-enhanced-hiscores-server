@@ -11,5 +11,8 @@ not affiliated with, endorsed by, or sponsored by Jagex Limited or RuneLite.
 Third-party material that is NOT covered by the BSD license:
 - public/icons/skills/*.png: skill icons from Old School RuneScape, © Jagex Limited.
   All rights reserved. Included as distributed with the RuneLite client.
+- public/icons/modes/*.png: account type and game mode icons from Old School RuneScape,
+  © Jagex Limited. All rights reserved. From the RuneLite client, and the group ironman
+  chat badges from the Old School RuneScape Wiki.
 - Item images on the website are loaded from static.runelite.net and are © Jagex Limited.
 - Official hiscores data shown on the website comes from Jagex Limited's hiscores.

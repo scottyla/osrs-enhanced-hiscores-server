@@ -362,3 +362,15 @@ tr.clickable { cursor: pointer; }
 .badge.unlinked { color: var(--text-secondary); }
 [data-theme="classic"] .player-header .badge.linked { background: #1d3a12; color: #b6e08a; border-color: #4a7a2a; }
 [data-theme="classic"] .player-header .badge.unlinked { background: #2a2318; color: #c9b98d; border-color: var(--bevel-dark); }
+
+/* ---- Game-mode icons (in-game account type badges; pixel art, so never smoothed) ---- */
+.mode-icon { width: 18px; height: 18px; image-rendering: pixelated; flex: none; object-fit: contain; }
+.pill, .nav-group > button { display: inline-flex; align-items: center; gap: 6px; }
+.nav-menu .pill { justify-content: flex-start; }
+.badge { display: inline-flex; align-items: center; gap: 4px; }
+.badge .mode-icon { width: 14px; height: 14px; }
+.with-icon { display: inline-flex; align-items: center; gap: 8px; }
+/* Dark icons (e.g. the blue group ironman helmet) need a faint outline on the dark stone tabs. */
+[data-theme="classic"] .boardbar .mode-icon,
+[data-theme="dark"] .mode-icon { filter: drop-shadow(0 0 1px rgb(255 240 200 / 0.55)); }
+@media (prefers-color-scheme: dark) { :root:where(:not([data-theme])) .mode-icon { filter: drop-shadow(0 0 1px rgb(255 240 200 / 0.55)); } }
