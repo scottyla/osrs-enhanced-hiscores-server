@@ -12,7 +12,7 @@ const db = openDatabase(dbPath);
 const app = await buildApp({
   db,
   trustProxy: process.env.TRUST_PROXY === 'true',
-  submitRateLimit: Number(process.env.SUBMIT_RATE_LIMIT ?? 30),
+  submitRateLimit: Number(process.env.SUBMIT_RATE_LIMIT ?? 12),
 });
 
 const close = async () => {

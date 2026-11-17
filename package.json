@@ -13,6 +13,7 @@
     "test": "node --test \"test/**/*.test.ts\""
   },
   "dependencies": {
+    "@fastify/compress": "^9.3.0",
     "@fastify/rate-limit": "^11.2.2",
     "@fastify/static": "^10.1.11",
     "better-sqlite3": "^13.2.0",

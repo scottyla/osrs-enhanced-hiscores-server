@@ -74,11 +74,23 @@ export interface OfficialOptions {
   maxConcurrent?: number;
   timeoutMs?: number;
   maxEntries?: number;
+  /** Most lookups sent to Jagex per minute across all visitors; beyond this, report busy. */
+  maxPerMinute?: number;
 }
 
 export function createOfficial({
   fetchImpl = fetch, ttlMs = 10 * 60_000, errorTtlMs = 30_000, maxConcurrent = 4, timeoutMs = 8_000, maxEntries = 5_000,
+  maxPerMinute = 120,
 }: OfficialOptions = {}) {
+  const recent: number[] = [];
+  /** Sliding one-minute window of lookups actually sent to Jagex (cache hits don't count). */
+  const allowOutbound = () => {
+    const now = Date.now();
+    while (recent.length && now - recent[0] > 60_000) recent.shift();
+    if (recent.length >= maxPerMinute) return false;
+    recent.push(now);
+    return true;
+  };
   const cache = new Map<string, { at: number; result?: OfficialResult; error?: boolean }>();
   const inFlight = new Map<string, Promise<OfficialResult>>();
   let active = 0;
@@ -121,6 +133,7 @@ export function createOfficial({
       if (hit?.error && now - hit.at < errorTtlMs) throw new OfficialUnavailable('Official hiscores are unreachable right now');
 
       let pending = inFlight.get(key);
+      if (!pending && !allowOutbound()) throw new OfficialUnavailable('Official hiscores lookups are busy; try again in a minute');
       if (!pending) {
         pending = fetchOne(username, board, endpoint)
           .then((result) => { cache.set(key, { at: Date.now(), result }); return result; })

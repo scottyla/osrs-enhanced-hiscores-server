@@ -45,7 +45,8 @@ function submission(overrides: Record<string, unknown> = {}) {
 
 async function setup() {
   const db = openDatabase(':memory:');
-  const app = await buildApp({ db, logger: false });
+  // Functional tests submit a lot from one "IP"; the limits have their own tests below.
+  const app = await buildApp({ db, logger: false, submitRateLimit: 10_000, characterLimit: { capacity: 1000, refillMs: 1 } });
   const submit = (body: unknown, token?: string) => app.inject({
     method: 'POST', url: '/api/v1/submit', payload: body as object,
     headers: token ? { 'x-hiscores-token': token } : {},
@@ -415,5 +416,56 @@ test('profiles say the plugin is linked', async () => {
   const { app, submit, get } = await setup();
   await submit(submission({ username: 'Linked' }));
   assert.equal((await get('/api/players/Linked')).body.profile.pluginLinked, true);
+  await app.close();
+});
+
+test('limits: per character, per IP, body size', async () => {
+  const app = await buildApp({ db: openDatabase(':memory:'), logger: false, submitRateLimit: 100, characterLimit: { capacity: 3, refillMs: 60_000 } });
+  const post = (body: unknown, token?: string) => app.inject({ method: 'POST', url: '/api/v1/submit', payload: body as object, headers: token ? { 'x-hiscores-token': token } : {} });
+  const one = submission({ username: 'Spammer' });
+  const token = (await post(one)).json().token;
+  assert.equal((await post(one, token)).statusCode, 200);
+  assert.equal((await post(one, token)).statusCode, 200);
+  const limited = await post(one, token);
+  assert.equal(limited.statusCode, 429, 'a 4th submission in a minute is refused');
+  assert.ok(Number(limited.headers['retry-after']) > 0, 'with a Retry-After');
+  assert.equal((await post(submission({ username: 'Other' }))).statusCode, 200, 'other characters are unaffected');
+
+  const big = submission({ username: 'Big', lootSources: [{ type: 'NPC', name: 'x'.repeat(50), kills: 1, drops: Array(10_000).fill(123456) }] });
+  const many = { ...big, lootSources: Array(30).fill(big.lootSources[0]).map((s, i) => ({ ...s, name: `Boss ${i}` })) };
+  assert.equal((await post(many)).statusCode, 413, 'bodies over 1 MB are refused');
+  await app.close();
+
+  const strict = await buildApp({ db: openDatabase(':memory:'), logger: false, submitRateLimit: 2 });
+  const p2 = (u: string) => strict.inject({ method: 'POST', url: '/api/v1/submit', payload: submission({ username: u }) });
+  assert.equal((await p2('A')).statusCode, 200);
+  assert.equal((await p2('B')).statusCode, 200);
+  assert.equal((await p2('C')).statusCode, 429, 'per-IP limit across characters');
+  await strict.close();
+});
+
+test('responses are compressed and icons are cacheable', async () => {
+  const { app } = await setup();
+  const js = await app.inject({ url: '/app.js', headers: { 'accept-encoding': 'br, gzip' } });
+  assert.equal(js.headers['content-encoding'], 'br');
+  assert.equal(js.headers['cache-control'], 'public, max-age=300');
+  const icon = await app.inject({ url: '/icons/skills/attack.png' });
+  assert.equal(icon.headers['cache-control'], 'public, max-age=604800');
+  assert.equal(icon.headers['x-ratelimit-limit'], undefined, 'static files are not rate limited');
+  const api = await app.inject('/api/boards');
+  assert.equal(api.headers['x-ratelimit-limit'], '300', 'API calls are');
+  await app.close();
+});
+
+test('official lookups to Jagex are capped per minute', async () => {
+  const { createOfficial } = await import('../src/official.ts');
+  let calls = 0;
+  const fakeFetch = (async () => { calls++; return new Response(JSON.stringify({ name: 'x', skills: [], activities: [] })); }) as typeof fetch;
+  const app = await buildApp({ db: openDatabase(':memory:'), logger: false, official: createOfficial({ fetchImpl: fakeFetch, maxPerMinute: 2 }) });
+  assert.equal((await app.inject('/api/official/One')).statusCode, 200);
+  assert.equal((await app.inject('/api/official/Two')).statusCode, 200);
+  assert.equal((await app.inject('/api/official/Three')).statusCode, 503, 'third distinct lookup in a minute is refused');
+  assert.equal((await app.inject('/api/official/One')).statusCode, 200, 'cached lookups still work');
+  assert.equal(calls, 2);
   await app.close();
 });

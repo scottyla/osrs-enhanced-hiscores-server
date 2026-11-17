@@ -1,6 +1,9 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import rateLimit from '@fastify/rate-limit';
+import compress from '@fastify/compress';
+import { constants as zlib } from 'node:zlib';
+import { createRateLimiter } from './limits.ts';
 import { fileURLToPath } from 'node:url';
 import type { DB } from './db.ts';
 import { BOARD_IDS, SKILLS, STAT_CATEGORIES, type StatCategory } from './boards.ts';
@@ -16,6 +19,8 @@ export interface AppOptions {
   trustProxy?: boolean;
   /** Plugin submissions allowed per IP per minute. */
   submitRateLimit?: number;
+  /** Per-character submission bucket: burst size and ms per refilled token. */
+  characterLimit?: { capacity: number; refillMs: number };
   /** Official hiscores client; injectable for tests. */
   official?: ReturnType<typeof createOfficial>;
 }
@@ -61,17 +66,31 @@ function parseCategory(q: CategoryQs): Category {
   return { kind: 'stat', stat: q.category as StatCategory };
 }
 
-export async function buildApp({ db, logger = true, trustProxy = false, submitRateLimit = 30, official = createOfficial() }: AppOptions): Promise<FastifyInstance> {
+export async function buildApp({
+  db, logger = true, trustProxy = false, submitRateLimit = 12,
+  characterLimit = { capacity: 10, refillMs: 15_000 }, official = createOfficial(),
+}: AppOptions): Promise<FastifyInstance> {
   const app = Fastify({
     // Log requests without client IPs: the About page promises IPs aren't kept.
     logger: logger ? { serializers: { req: (req) => ({ method: req.method, url: req.url }) } } : false,
     trustProxy,
-    bodyLimit: 5 * 1024 * 1024,
+    // The plugin splits big syncs into ~100-source chunks, far below this.
+    bodyLimit: 1024 * 1024,
   });
+  const perCharacter = createRateLimiter(characterLimit);
   const ingest = createIngest(db);
   const q = createQueries(db);
 
-  await app.register(rateLimit, { global: true, max: 300, timeWindow: '1 minute' });
+  // Per-IP limit on API calls. Static files (icons, scripts) are cheap and browser-cached, so they don't count.
+  await app.register(rateLimit, {
+    global: true, max: 300, timeWindow: '1 minute',
+    allowList: (req) => !req.url.startsWith('/api/'),
+  });
+  // Compress responses: outbound traffic is what's billed per GB. Light brotli keeps CPU low.
+  await app.register(compress, {
+    global: true, threshold: 1024, encodings: ['br', 'gzip'],
+    brotliOptions: { params: { [zlib.BROTLI_PARAM_QUALITY]: 4 } },
+  });
 
   app.addHook('onSend', async (req, reply) => {
     // Leaderboards and player pages can be up to 30 s old; lets browsers/proxies absorb bursts of traffic.
@@ -99,9 +118,15 @@ export async function buildApp({ db, logger = true, trustProxy = false, submitRa
   app.post<{ Body: Submission }>('/api/v1/submit', {
     schema: { body: submissionSchema },
     config: { rateLimit: { max: submitRateLimit, timeWindow: '1 minute' } },
-  }, async (req) => {
-    const token = req.headers['x-hiscores-token'];
+  }, async (req, reply) => {
     const b = req.body;
+    // However many IPs it comes from, one character can't submit faster than this.
+    const wait = perCharacter.take(`${b.accountHash}|${b.profileType}`);
+    if (wait > 0) {
+      reply.header('Retry-After', String(wait));
+      return reply.code(429).send({ error: 'Too many submissions for this character' });
+    }
+    const token = req.headers['x-hiscores-token'];
     const result = ingest(b, typeof token === 'string' && token.length <= 128 ? token : undefined);
     req.log.info({
       player: b.username, profile: b.profileType, mode: b.gameMode, accountType: b.accountType,
@@ -200,7 +225,15 @@ export async function buildApp({ db, logger = true, trustProxy = false, submitRa
 
   // ---- Dashboard static files ----
 
-  await app.register(fastifyStatic, { root: fileURLToPath(new URL('../public', import.meta.url)) });
+  await app.register(fastifyStatic, {
+    root: fileURLToPath(new URL('../public', import.meta.url)),
+    cacheControl: false,
+    // Icons never change; let browsers keep them for a week. Pages/scripts: 5 minutes, then revalidate.
+    setHeaders: (res, path) => {
+      res.header('Cache-Control', /[\\/]icons[\\/]/.test(path) || /favicon/.test(path)
+        ? 'public, max-age=604800' : 'public, max-age=300');
+    },
+  });
 
   return app;
 }
