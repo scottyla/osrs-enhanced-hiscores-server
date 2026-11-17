@@ -1,0 +1,30 @@
+# Single-VPS deployment: the hiscores server behind Caddy, which gets a Let's Encrypt certificate automatically.
+# 1. Point DNS A records for osrsenhancedhiscores.com and www.osrsenhancedhiscores.com at the server.
+# 2. DOMAIN defaults to osrsenhancedhiscores.com; override it in a .env file next to this one if needed.
+# 3. docker compose up -d --build
+services:
+  hiscores:
+    build: ..
+    restart: unless-stopped
+    environment:
+      TRUST_PROXY: "true"
+    volumes:
+      - hiscores-data:/data
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:-osrsenhancedhiscores.com}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    depends_on:
+      - hiscores
+
+volumes:
+  hiscores-data:
+  caddy-data:

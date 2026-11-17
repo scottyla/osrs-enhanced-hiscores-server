@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en" data-theme="classic">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OSRS Enhanced Hiscores</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="#/">OSRS Enhanced Hiscores</a>
+    <form class="search" id="search-form" role="search" autocomplete="off">
+      <label class="visually-hidden" for="search-input">Look up a player</label>
+      <input id="search-input" type="search" placeholder="Look up a player" maxlength="12" list="search-suggestions">
+      <datalist id="search-suggestions"></datalist>
+      <button type="submit">Search</button>
+    </form>
+    <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Toggle dark mode">◐</button>
+  </header>
+  <nav class="boardbar" id="boardbar" aria-label="Game mode"></nav>
+  <main id="app" aria-live="polite"></main>
+  <footer class="footer">
+    <a href="#/about">About &amp; privacy</a> ·
+    <a href="https://github.com/scottyla/osrs-enhanced-hiscores" rel="noopener">Get the RuneLite plugin</a><br>
+    Data comes from players running the OSRS Enhanced Hiscores RuneLite plugin. Not affiliated with Jagex or RuneLite.
+  </footer>
+  <div class="tooltip" id="tooltip" role="tooltip" hidden></div>
+</body>
+</html>
