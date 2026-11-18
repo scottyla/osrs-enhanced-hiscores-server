@@ -2,6 +2,12 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { usernameKey, type DB } from './db.ts';
 import type { Submission } from './validate.ts';
 
+/**
+ * The plugin sends every quest (~216, including miniquests) at login and only changes afterwards.
+ * A submission with at least this many is the full list.
+ */
+export const FULL_QUEST_LIST = 150;
+
 /** Drops kept per player for the recent drops feed. */
 const MAX_DROPS_PER_PLAYER = 500;
 /** Reject timestamps more than this far in the future (client clock skew allowance). */
@@ -116,9 +122,12 @@ export function createIngest(db: DB) {
          completed_at = COALESCE(excluded.completed_at, completed_at),
          elapsed_ms   = COALESCE(excluded.elapsed_ms, elapsed_ms),
          played_ms    = COALESCE(excluded.played_ms, played_ms)`),
+    // Only count quests once the full list has arrived; a partial list would give a wrong (low) count.
     updateQuestCount: db.prepare(
-      `UPDATE players SET quests_completed =
-         (SELECT COUNT(*) FROM player_quests WHERE player_id = @playerId AND state = 'FINISHED')
+      `UPDATE players SET
+         quests_synced_at = CASE WHEN @full THEN @now ELSE quests_synced_at END,
+         quests_completed = CASE WHEN @full OR quests_synced_at IS NOT NULL
+           THEN (SELECT COUNT(*) FROM player_quests WHERE player_id = @playerId AND state = 'FINISHED') END
        WHERE id = @playerId`),
     updateTotals: db.prepare(
       `UPDATE players SET
@@ -240,7 +249,9 @@ export function createIngest(db: DB) {
         elapsedMs: q.elapsedMs ?? null, playedMs: q.playedMs ?? null,
       });
     }
-    if (sub.quests.length > 0) stmts.updateQuestCount.run({ playerId });
+    if (sub.quests.length > 0) {
+      stmts.updateQuestCount.run({ playerId, full: sub.quests.length >= FULL_QUEST_LIST ? 1 : 0, now });
+    }
 
     if (sub.lootSources.length > 0) stmts.updateTotals.run({ playerId });
     return result;

@@ -733,7 +733,7 @@ function milestones(levelUps) {
 }
 
 /** Popup listing a player's quests: completed by default, with tabs and a search box. */
-function showQuestDialog(p, quests, q, initial = 'FINISHED') {
+function showQuestDialog(p, quests, q, initial = p.questsSynced ? 'FINISHED' : 'all') {
   const done = quests.filter((x) => x.state === 'FINISHED').length;
   const TABS = [['FINISHED', 'Completed'], ['IN_PROGRESS', 'In progress'], ['NOT_STARTED', 'Not started'], ['all', 'All']];
   let tab = initial;
@@ -766,9 +766,13 @@ function showQuestDialog(p, quests, q, initial = 'FINISHED') {
     h('div', { class: 'dialog-head' },
       h('h2', {}, `${p.username}'s quests`),
       h('button', { type: 'button', class: 'pill', 'aria-label': 'Close', onclick: () => dialog.close() }, '✕')),
-    h('p', { class: 'muted', style: { marginTop: 0 } },
-      `${num(done)} of ${num(quests.length)} quests and miniquests completed · ${num(p.questPoints)} quest points · `,
-      h('a', { href: href('/', { ...q, cat: 'quest_points' }) }, 'Quest points leaderboard')),
+    p.questsSynced
+      ? h('p', { class: 'muted', style: { marginTop: 0 } },
+        `${num(done)} of ${num(quests.length)} quests and miniquests completed · ${num(p.questPoints)} quest points · `,
+        h('a', { href: href('/', { ...q, cat: 'quest_points' }) }, 'Quest points leaderboard'))
+      : h('p', { class: 'notice' }, h('strong', {}, 'Partial list. '),
+        `Only quests that changed recently are shown; ${p.username}'s full quest list arrives the next time they log in with the latest plugin. `,
+        `${num(p.questPoints)} quest points.`),
     h('div', { class: 'controls', style: { marginBottom: '8px' } }, tabs, search),
     list,
     h('p', { class: 'muted', style: { fontSize: '0.8rem' } }, 'Completion dates and times are only known for quests finished while the plugin was running.'));

@@ -58,6 +58,7 @@ interface PlayerRow {
   clog_categories: string | null;
   playtime_minutes: number | null;
   quests_completed: number | null;
+  quests_synced_at: number | null;
   ca_points: number | null;
   ca_tasks: number | null;
   slayer_points: number | null;
@@ -166,6 +167,8 @@ export function createQueries(db: DB) {
       },
       playtimeMinutes: p.playtime_minutes,
       questsCompleted: p.quests_completed,
+      /** False until the plugin has sent the player's full quest list (it does on login). */
+      questsSynced: p.quests_synced_at != null,
       combatAchievements: p.ca_points == null ? null : { points: p.ca_points, tasks: p.ca_tasks },
       slayer: p.slayer_points == null ? null : { points: p.slayer_points, streak: p.slayer_streak },
       diaries: p.diaries ? JSON.parse(p.diaries) as Record<string, number[]> : null,

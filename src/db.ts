@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 
 export type DB = Database.Database;
 
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 const SCHEMA = `
 -- One row per character per RuneScape profile. Leagues/Deadman are separate profiles with their own
@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS players (
   clog_categories  TEXT,
   playtime_minutes INTEGER,
   quests_completed INTEGER,
+  quests_synced_at INTEGER,                 -- when the full quest list last arrived; NULL = only partial changes
   ca_points        INTEGER,
   ca_tasks         INTEGER,
   slayer_points    INTEGER,
@@ -158,6 +159,9 @@ const MIGRATIONS: Record<number, string> = {
       ALTER TABLE players ADD COLUMN slayer_streak INTEGER;
       ALTER TABLE players ADD COLUMN diaries TEXT;
       ALTER TABLE players ADD COLUMN diaries_completed INTEGER;`,
+  // Quest counts are only trusted once the full list has arrived; existing partial counts are cleared.
+  5: `ALTER TABLE players ADD COLUMN quests_synced_at INTEGER;
+      UPDATE players SET quests_completed = NULL;`,
 };
 
 /** Indexes on columns added by migrations; created after migrating. */

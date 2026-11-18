@@ -390,3 +390,6 @@ tr.clickable { cursor: pointer; }
 .tile.clickable .tile-sub { color: var(--accent-ink); }
 [data-theme="classic"] .tile.clickable:hover { filter: brightness(1.05); }
 [data-theme="classic"] .tile.clickable .tile-sub { color: var(--link-brown); font-weight: 700; }
+
+.notice { margin-top: 0; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface-2); font-size: 0.88rem; }
+[data-theme="classic"] .notice { background: var(--parchment-dark); border-color: rgb(56 36 24 / 0.4); border-radius: 0; }

@@ -241,10 +241,12 @@ test('rejects malformed submissions', async () => {
 
 test('quests: state, timing kept once known, completed count and speed boards', async () => {
   const { app, submit, get } = await setup();
+  // At login the plugin sends every quest; pad to a realistic full list.
   const quests = [
     { id: 1, name: "Cook's Assistant", state: 'FINISHED' },
     { id: 2, name: 'Dragon Slayer I', state: 'IN_PROGRESS', startedAt: 1_000 },
     { id: 3, name: 'Monkey Madness I', state: 'NOT_STARTED' },
+    ...Array.from({ length: 213 }, (_, i) => ({ id: 100 + i, name: `Quest ${100 + i}`, state: 'NOT_STARTED' })),
   ];
   const slow = submission({ username: 'Slow', quests });
   const slowToken = (await submit(slow)).json().token;
@@ -257,12 +259,17 @@ test('quests: state, timing kept once known, completed count and speed boards', 
   await submit({ ...slow, quests: [{ id: 2, name: 'Dragon Slayer I', state: 'FINISHED' }] }, slowToken);
 
   const list = (await get('/api/players/Slow/quests')).body;
-  assert.deepEqual(list.map((q: { name: string; state: string }) => [q.name, q.state]),
-    [["Cook's Assistant", 'FINISHED'], ['Dragon Slayer I', 'FINISHED'], ['Monkey Madness I', 'NOT_STARTED']]);
-  assert.equal(list[1].playedMs, 7_200_000, 'timing survives a later submission without it');
-  assert.equal(list[0].playedMs, null, 'quests finished before tracking have no time');
+  assert.equal(list.length, 216);
+  type QuestRow = { name: string; state: string; playedMs: number | null };
+  const byName = new Map<string, QuestRow>(list.map((q: QuestRow) => [q.name, q]));
+  assert.deepEqual([byName.get("Cook's Assistant")!.state, byName.get('Dragon Slayer I')!.state, byName.get('Monkey Madness I')!.state],
+    ['FINISHED', 'FINISHED', 'NOT_STARTED']);
+  assert.equal(byName.get('Dragon Slayer I')!.playedMs, 7_200_000, 'timing survives a later submission without it');
+  assert.equal(byName.get("Cook's Assistant")!.playedMs, null, 'quests finished before tracking have no time');
 
-  assert.equal((await get('/api/players/Slow')).body.profile.questsCompleted, 2);
+  const slowProfile = (await get('/api/players/Slow')).body.profile;
+  assert.equal(slowProfile.questsCompleted, 2);
+  assert.equal(slowProfile.questsSynced, true);
   const completed = (await get('/api/hiscores?category=quests_completed')).body.rows;
   assert.deepEqual(completed.map((r: { score: number }) => r.score), [2, 2]);
 
@@ -286,7 +293,7 @@ test('upgrading a v2 database keeps existing players', async () => {
     const v2 = openDatabase(path);
     v2.exec(`DROP INDEX players_quests; DROP INDEX players_ca; DROP INDEX players_diaries;
       ALTER TABLE players DROP COLUMN quests_completed; DROP TABLE player_quests;
-      ${['ca_points', 'ca_tasks', 'slayer_points', 'slayer_streak', 'diaries', 'diaries_completed']
+      ${['ca_points', 'ca_tasks', 'slayer_points', 'slayer_streak', 'diaries', 'diaries_completed', 'quests_synced_at']
         .map((c) => `ALTER TABLE players DROP COLUMN ${c};`).join(' ')}
       DROP TABLE player_killcounts; DROP TABLE player_level_ups; DROP TABLE xp_daily;`);
     v2.pragma('user_version = 2');
@@ -295,7 +302,7 @@ test('upgrading a v2 database keeps existing players', async () => {
     v2.close();
 
     const db = openDatabase(path);
-    assert.equal(db.pragma('user_version', { simple: true }), 4);
+    assert.equal(db.pragma('user_version', { simple: true }), 5);
     assert.equal((db.prepare('SELECT username, quests_completed FROM players').get() as { username: string }).username, 'Survivor');
     for (const t of ['player_quests', 'player_killcounts', 'player_level_ups', 'xp_daily']) {
       assert.ok(db.prepare('SELECT 1 FROM sqlite_master WHERE name = ?').get(t), t);
@@ -467,5 +474,28 @@ test('official lookups to Jagex are capped per minute', async () => {
   assert.equal((await app.inject('/api/official/Three')).statusCode, 503, 'third distinct lookup in a minute is refused');
   assert.equal((await app.inject('/api/official/One')).statusCode, 200, 'cached lookups still work');
   assert.equal(calls, 2);
+  await app.close();
+});
+
+test('a partial quest list is never counted or ranked', async () => {
+  const { app, submit, get } = await setup();
+  // e.g. the plugin was pointed at this server mid-session and only sent the quests that changed
+  const partial = submission({ username: 'Partial', quests: [{ id: 1, name: "Cook's Assistant", state: 'FINISHED' }] });
+  const token = (await submit(partial)).json().token;
+  let profile = (await get('/api/players/Partial')).body.profile;
+  assert.equal(profile.questsCompleted, null);
+  assert.equal(profile.questsSynced, false);
+  assert.deepEqual((await get('/api/hiscores?category=quests_completed')).body.rows, []);
+  assert.equal((await get('/api/players/Partial/quests')).body.length, 1, 'what we have is still listed');
+
+  // Next login: the full list arrives and the count becomes real.
+  const full = Array.from({ length: 216 }, (_, i) => ({ id: i + 1, name: `Quest ${i + 1}`, state: i < 150 ? 'FINISHED' : 'NOT_STARTED' }));
+  await submit({ ...partial, quests: full }, token);
+  profile = (await get('/api/players/Partial')).body.profile;
+  assert.equal(profile.questsCompleted, 150);
+  assert.equal(profile.questsSynced, true);
+  // Later partial updates keep counting.
+  await submit({ ...partial, quests: [{ id: 200, name: 'Quest 200', state: 'FINISHED' }] }, token);
+  assert.equal((await get('/api/players/Partial')).body.profile.questsCompleted, 151);
   await app.close();
 });
