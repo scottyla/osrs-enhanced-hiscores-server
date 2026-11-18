@@ -374,3 +374,19 @@ tr.clickable { cursor: pointer; }
 [data-theme="classic"] .boardbar .mode-icon,
 [data-theme="dark"] .mode-icon { filter: drop-shadow(0 0 1px rgb(255 240 200 / 0.55)); }
 @media (prefers-color-scheme: dark) { :root:where(:not([data-theme])) .mode-icon { filter: drop-shadow(0 0 1px rgb(255 240 200 / 0.55)); } }
+
+/* ---- Quest list popup ---- */
+.quest-dialog { width: min(860px, 94vw); max-height: 86vh; padding: 16px 20px; overflow: auto; color: var(--text-primary); }
+.quest-dialog::backdrop { background: rgb(0 0 0 / 0.6); }
+.dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.dialog-head h2 { margin: 0; }
+.quest-list { max-height: 55vh; overflow: auto; }
+.link-button { all: unset; cursor: pointer; color: var(--accent-ink); }
+.link-button:hover { text-decoration: underline; }
+.link-button:focus-visible { outline: 2px solid var(--accent); }
+[data-theme="classic"] .link-button { color: var(--link-brown); font-weight: 700; }
+.tile.clickable { cursor: pointer; text-align: left; font: inherit; color: inherit; width: 100%; }
+.tile.clickable:hover { border-color: var(--accent); }
+.tile.clickable .tile-sub { color: var(--accent-ink); }
+[data-theme="classic"] .tile.clickable:hover { filter: brightness(1.05); }
+[data-theme="classic"] .tile.clickable .tile-sub { color: var(--link-brown); font-weight: 700; }

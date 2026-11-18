@@ -157,11 +157,15 @@ function withTooltip(el, content) {
 
 const errorView = (e) => h('div', { class: 'card error' }, e.message ?? String(e));
 
-function tile(label, value, sub) {
-  return h('div', { class: 'tile' },
+function tile(label, value, sub, onClick) {
+  const children = [
     h('div', { class: 'tile-label' }, label),
     h('div', { class: 'tile-value' }, value),
-    sub ? h('div', { class: 'tile-sub' }, sub) : null);
+    sub ? h('div', { class: 'tile-sub' }, sub) : null,
+  ];
+  return onClick
+    ? h('button', { type: 'button', class: 'tile clickable', onclick: onClick, 'aria-haspopup': 'dialog' }, ...children)
+    : h('div', { class: 'tile' }, ...children);
 }
 
 // ---------- game mode bar ----------
@@ -508,7 +512,13 @@ async function renderPlayer(username, params) {
       h('thead', {}, h('tr', {}, h('th', {}, 'Category'), h('th', { class: 'num' }, 'Rank'), h('th', { class: 'num' }, 'Score'))),
       h('tbody', {}, ranks.stats.map((s) => {
         const format = STATS.find((x) => x.key === s.key)?.format ?? num;
-        return h('tr', {}, h('td', {}, h('a', { href: catHref(s.key) }, s.label)), rankCell(s.rank),
+        const isQuest = s.key === 'quest_points' || s.key === 'quests_completed';
+        const label = isQuest && (quests ?? []).length
+          ? h('button', { type: 'button', class: 'link-button', 'aria-haspopup': 'dialog',
+            onclick: () => showQuestDialog(p, quests, q) }, s.label)
+          : h('a', { href: catHref(s.key) }, s.label);
+        return h('tr', {}, h('td', {}, label),
+          h('td', { class: 'num' }, s.rank == null ? '–' : h('a', { href: catHref(s.key), title: `${s.label} leaderboard` }, num(s.rank))),
           h('td', { class: 'num' }, s.score == null ? '–' : format(s.score)));
       }))),
     p.playtimeMinutes == null ? h('p', { class: 'muted', style: { fontSize: '0.82rem' } }, 'Hours played appear once the player reveals them in the Character Summary tab.') : null);
@@ -528,7 +538,8 @@ async function renderPlayer(username, params) {
       tile('Loot value', gp(p.lootValue), `${num(p.totalKills)} kills tracked`),
       tile('Collection log', clog ? `${num(clog.obtained)} / ${num(clog.total)}` : '–',
         clog ? `${((clog.obtained / Math.max(clog.total, 1)) * 100).toFixed(1)}% complete` : null),
-      tile('Quest points', num(p.questPoints), p.questsCompleted != null ? `${num(p.questsCompleted)} quests done` : null),
+      tile('Quest points', num(p.questPoints), p.questsCompleted != null ? `${num(p.questsCompleted)} quests done · view list` : null,
+        (quests ?? []).length ? () => showQuestDialog(p, quests, q) : null),
       tile('Hours played', hours(p.playtimeMinutes)),
       tile('Combat achievements', p.combatAchievements ? `${num(p.combatAchievements.points)} pts` : '–',
         p.combatAchievements ? `${num(p.combatAchievements.tasks)} tasks` : null),
@@ -719,6 +730,55 @@ function milestones(levelUps) {
     h('span', {}, skillIcon(l.skill), `${skillName(l.skill)} ${l.level}`, l.level === 99 ? h('strong', {}, ' ★') : null),
     h('span', { class: 'muted' }, timeAgo(l.at)))))));
   return box;
+}
+
+/** Popup listing a player's quests: completed by default, with tabs and a search box. */
+function showQuestDialog(p, quests, q, initial = 'FINISHED') {
+  const done = quests.filter((x) => x.state === 'FINISHED').length;
+  const TABS = [['FINISHED', 'Completed'], ['IN_PROGRESS', 'In progress'], ['NOT_STARTED', 'Not started'], ['all', 'All']];
+  let tab = initial;
+  const search = h('input', { type: 'search', placeholder: 'Search quests', 'aria-label': 'Search quests' });
+  const tabs = h('div', { class: 'controls', role: 'group', 'aria-label': 'Show quests' });
+  const list = h('div', { class: 'quest-list' });
+  const count = (state) => quests.filter((x) => state === 'all' || x.state === state).length;
+
+  const render = () => {
+    tabs.replaceChildren(...TABS.map(([k, label]) => h('button', { type: 'button', class: 'pill', 'aria-pressed': String(tab === k),
+      onclick: () => { tab = k; render(); } }, `${label} (${num(count(k))})`)));
+    const f = search.value.trim().toLowerCase();
+    const rows = quests
+      .filter((x) => (tab === 'all' || x.state === tab) && (!f || x.name.toLowerCase().includes(f)))
+      .sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0) || a.name.localeCompare(b.name));
+    list.replaceChildren(rows.length === 0 ? h('p', { class: 'empty' }, 'No quests here.') : h('table', {},
+      h('thead', {}, h('tr', {}, h('th', {}, 'Quest'), h('th', {}, 'Status'), h('th', { class: 'num' }, 'Completed'),
+        h('th', { class: 'num' }, 'Played time'), h('th', { class: 'num' }, 'Start to finish'))),
+      h('tbody', {}, rows.map((x) => h('tr', {},
+        h('td', {}, x.playedMs != null ? h('a', { href: href('/', { ...q, cat: 'quest', quest: x.id, qname: x.name }), title: 'Quest speed leaderboard' }, x.name) : x.name),
+        h('td', {}, x.state === 'FINISHED' ? h('span', { class: 'status-done' }, '✔ Completed')
+          : x.state === 'IN_PROGRESS' ? h('span', { class: 'status-progress' }, '… In progress') : h('span', { class: 'muted' }, 'Not started')),
+        h('td', { class: 'num' }, date(x.completedAt)),
+        h('td', { class: 'num' }, duration(x.playedMs)),
+        h('td', { class: 'num' }, duration(x.elapsedMs)))))));
+  };
+  search.addEventListener('input', render);
+
+  const dialog = h('dialog', { class: 'card quest-dialog', 'aria-label': `${p.username}'s quests` },
+    h('div', { class: 'dialog-head' },
+      h('h2', {}, `${p.username}'s quests`),
+      h('button', { type: 'button', class: 'pill', 'aria-label': 'Close', onclick: () => dialog.close() }, '✕')),
+    h('p', { class: 'muted', style: { marginTop: 0 } },
+      `${num(done)} of ${num(quests.length)} quests and miniquests completed · ${num(p.questPoints)} quest points · `,
+      h('a', { href: href('/', { ...q, cat: 'quest_points' }) }, 'Quest points leaderboard')),
+    h('div', { class: 'controls', style: { marginBottom: '8px' } }, tabs, search),
+    list,
+    h('p', { class: 'muted', style: { fontSize: '0.8rem' } }, 'Completion dates and times are only known for quests finished while the plugin was running.'));
+  dialog.addEventListener('close', () => dialog.remove());
+  // Clicking the dark backdrop (outside the box) closes it.
+  dialog.addEventListener('click', (e) => { if (e.target === dialog) dialog.close(); });
+  document.body.append(dialog);
+  render();
+  dialog.showModal();
+  search.focus();
 }
 
 function questsCard(quests, q) {
